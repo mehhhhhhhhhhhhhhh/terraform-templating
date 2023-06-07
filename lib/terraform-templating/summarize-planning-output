@@ -1,0 +1,52 @@
+#!/usr/bin/ruby
+
+ErrorIfNonEmpty = ARGV.delete('-e') != nil
+RemoveColors = ARGV.delete('-c') != nil
+HeadersOnly = ARGV.delete('-l') != nil
+
+def isHeader(l)
+	l.include? 'resource'
+end
+def isChange(l)
+	l =~ %r{^ *(~|-|\+)[^-]}
+end
+def isPointless(l)
+	l.include? '(known after apply)' and / +\+/ =~ l
+end
+
+$isPlanningFile = false
+$foundActions = false
+$foundError = false
+
+ARGF.each_line do |l|
+	if not $isPlanningFile
+		$isPlanningFile = true if l.include? 'Refreshing Terraform state'
+	elsif not $foundActions and not $foundError
+		$foundActions = true if l.include? 'will perform'
+		$foundError = true if l.include? 'Error'
+	else
+		withoutColor = l.gsub %r{\x1b\[[0-9;]*[a-zA-Z]}, ''  # Strip off vt100 control chars so we can parse the line (but retain them on `l` for output)
+
+		if isHeader withoutColor
+			puts (RemoveColors ? withoutColor : l).sub('resource "','').sub('" "','.').sub('" {','')
+		elsif withoutColor.include? 'forces' and not HeadersOnly
+			puts RemoveColors ? withoutColor : l
+		elsif not HeadersOnly and isChange withoutColor and not isPointless(withoutColor)
+			darkWhite = RemoveColors ? '' : "\x1b[2;37m"
+			puts "#{darkWhite}#{withoutColor}"
+		end
+	end
+end
+
+unless $isPlanningFile
+	$stderr.puts "Input file doesn't look like Terraform planning output... :\\"
+	exit 4
+end
+
+if $foundError
+	$stderr.puts "Plan failed :("
+	exit 4
+end
+
+$stderr.puts "Nothing to do! :)" unless $foundActions
+exit ($foundActions ? 1 : 0) if ErrorIfNonEmpty

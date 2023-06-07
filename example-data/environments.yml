@@ -1,0 +1,14 @@
+environments:
+  mock-production:
+    backend_stack: v1-backend
+    domain: mock.example.com
+    region: us-west-2
+    infra_branch: main
+    infra_version: examples/with-env-data
+    production_account: 'mock-production'
+  mock-dev:
+    backend_stack: v1-backend
+    domain: mock.internal.example.com
+    region: us-west-2
+    infra_branch: main
+    infra_version: examples/with-env-data

@@ -1,0 +1,23 @@
+# name:
+#   This should match the service build/repo name
+#
+# abbrev_name:
+#   Sometimes we have to give things names where AWS does not allow proper tags but instead has restricted fields of limited length (e.g. target groups).
+#   These must only contain letters and numbers and hyphens, not start with a number, and be 17 characters or under (because the shortest restriction IRL so far is 32 characters + a "production-lb-" prefix).
+
+services:
+  9001:
+    name: example-service-a
+    abbrev_name: svc-a
+    prometheus_monitoring: true
+  9002:
+    name: example-service-b
+    abbrev_name: svc-b
+    prometheus_monitoring: true
+
+mocks:
+  9301:
+    name: example-mock-a
+    abbrev_name: mock-a
+    prometheus_monitoring: true
+    only_environments: ['*dev', '*sandbox']

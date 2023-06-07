@@ -1,0 +1,17 @@
+accounts:
+  aws:
+    mock-dev:
+      account_id: 123456789
+      auth_method: mock
+    mock-production:
+      account_id: 123456799
+      auth_method: mock
+  gcp:
+    example.com:
+      google_id: 123456789127
+      projects:
+        mock-production:
+          google_id: example-com-production
+        mock-dev:
+          google_id: example-com-dev
+      auth_method: mock

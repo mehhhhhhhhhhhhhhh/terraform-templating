@@ -1,0 +1,53 @@
+resource "aws_lb" "backend_alb_a" {
+  name            = "${var.env_tag_name}-backend-alb-a"
+  subnets         = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+  internal        = true
+  security_groups = [aws_security_group.backend_elb.id]
+  idle_timeout    = 30
+  <% if Environment['export_alb_access_logs'] %>
+  access_logs {
+    bucket  = aws_s3_bucket.alb-logs.id
+    enabled = true
+  }
+  <% end %>
+}
+
+resource "aws_route53_record" "backend_lb_a" {
+  zone_id = aws_route53_zone.internal.zone_id
+  name    = "backend-lb-a.${var.domain}"
+  type    = "CNAME"
+  ttl     = "60"
+  records = [aws_lb.backend_alb_a.dns_name]
+}
+
+<% BackendStack.each do |backend_service| %>
+
+resource "aws_lb_target_group" "backend_alb_target_<%= backend_service['abbrev_name'] %>_a" {
+  name                 = "${var.env_tag_name}-lb-<%= backend_service['abbrev_name'] %>-a"
+  port                 = <%= backend_service['port'] %>
+  protocol             = "HTTP"
+  vpc_id               = aws_vpc.main.id
+  deregistration_delay = 30
+
+  health_check {
+    matcher             = "<%= backend_service['annoying_inconsistent_health_status'] || 200 %>"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 10
+    timeout             = 8
+    path                = "<%= backend_service['annoying_inconsistent_health_path'] || '/manage/health' %>"
+  }
+}
+
+resource "aws_lb_listener" "backend_alb_listener_<%= backend_service['abbrev_name'] %>_a" {
+  load_balancer_arn = aws_lb.backend_alb_a.arn
+  port              = <%= backend_service['port'] %>
+  protocol          = "HTTP"
+
+  default_action {
+    target_group_arn = aws_lb_target_group.backend_alb_target_<%= backend_service['abbrev_name'] %>_a.arn
+    type             = "forward"
+  }
+}
+
+<% end %>
