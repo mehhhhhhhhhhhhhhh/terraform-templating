@@ -59,7 +59,7 @@ WorkDir = case
 OutputFilePrefix ||= ENV['OUTPUT_FILE_PREFIX'] ? File::realdirpath(ENV['OUTPUT_FILE_PREFIX']) : File.join(WorkDir, 'result')
 
 ShouldInit ||= (not File.exist?(File.join(WorkDir, '.terraform')))
-HalfInit = (AlternateTerraformCommand.first rescue '') == 'workspace'
+IsWorkspaceCommand = (AlternateTerraformCommand.first rescue '') == 'workspace'
 
 
 ##############################
@@ -70,6 +70,7 @@ EnvironmentVars = Environments[EnvironmentName]
 raise "#{EnvironmentName} environment is missing from environments.yml" unless EnvironmentVars
 EnvironmentVars['name'] ||= EnvironmentName
 
+# Environment could just be the EnvironmentVars hash straight from the YAML, but this way it can also have methods
 class Environment
 	def self.[](val)
 		EnvironmentVars[val]
@@ -84,9 +85,12 @@ class Environment
 		self['external_domain'] || self['domain']
 	end
 	def self.method_missing(name, *args)
+		name = name.to_s
 		raise "Trying to call method with arguments on Environment, which isn't defined properly" unless args.empty?
-		self[name.to_s]
+		raise "Undefined Environment value #{}" unless self.include?(name)
+		self[name]
 	end
+	# If we don't define a method for a name, it will instead look for a field in the hash with that name
 end
 
 Accounts = YAML::load_file(File::realpath(__dir__ + '/../../example-data/accounts.yml'))['accounts']['aws']
@@ -117,13 +121,23 @@ Dir::chdir SourceDir
 
 FileUtils.mkdir_p WorkDir
 
-struct = OpenStruct.new(TerraformVersion: TerraformVersion, Environments: Environments, Environment: Environment, Regions: Regions, Region: Region, Account: Account, BackendStack: BackendStack)
-binding = struct.instance_eval { binding }
-expected_files = Set.new
+scope_vars = OpenStruct.new({
+	# you can put things in here, to make them available to your .tf.rb or .tf.erb files
+	TerraformVersion: TerraformVersion,
+	Environments: Environments,
+	Environment: Environment,
+	Regions: Regions,
+	Region: Region,
+	Account: Account,
+	BackendStack: BackendStack
+})
+binding = scope_vars.instance_eval { binding }
+expected_files = Set.new(['result.planning'])
 Dir["**/*"].each do |path|
 	next if File.directory?(path)
 	next if path.start_with?('environments')
 	next if path.end_with?('result.planning')
+	next if path == 'plan' or path == 'summarize'
 	if match = /((?<subdir>.*)\/)?(?<filename>[^\/]*)\.(?<extension>[^.]+)\.erb$/ =~ path
 		FileUtils.mkdir_p(File.join(WorkDir, subdir)) if subdir
 		destination_path = "#{WorkDir}/#{subdir ? "#{subdir}/" : ''}#{filename}.gen.#{extension}"
@@ -138,7 +152,7 @@ Dir["**/*"].each do |path|
 		destination_path = "#{WorkDir}/#{subdir ? "#{subdir}/" : ''}#{filename}.gen.tf.json"
 		expected_files << "#{subdir ? "#{subdir}/" : ''}#{filename}.gen.tf.json"
 		File.open(destination_path, 'w') do |destination|
-			struct.instance_eval do
+			scope_vars.instance_eval do
 				load(File.join(LibDir, 'tf-ruby-template-wrapper.rb'))
 				tf_template(File.realpath(path), destination)
 			end
@@ -202,33 +216,27 @@ unless ENV['AWS_SECRET_ACCESS_KEY'] or ENV['AWS_SECRET_KEY']
 end
 
 current_workspace = `'#{TerraformBinary}' workspace show`.strip
-if ShouldInit or (current_workspace != Environment['name'] and not HalfInit)
+if ShouldInit or (current_workspace != Environment['name'] and not IsWorkspaceCommand)
 	FileUtils.mkdir_p(TerraformPluginDir)
 	FileUtils.mkdir_p(File.join(WorkDir, '.terraform'))
 	FileUtils.ln_s(TerraformPluginDir, File.join(WorkDir, '.terraform', 'plugins'), force: true)
 	system("'#{TerraformBinary}' init -reconfigure")
-	system("'#{TerraformBinary}' workspace select #{Environment['name']}") or exit 4 unless HalfInit
+	system("'#{TerraformBinary}' workspace select #{Environment['name']}") or exit 4 unless IsWorkspaceCommand
 
-	system("'#{TerraformBinary}' init -reconfigure") or exit 4 unless HalfInit
+	system("'#{TerraformBinary}' init -reconfigure") or exit 4 unless IsWorkspaceCommand
 end
 
 current_workspace = `'#{TerraformBinary}' workspace show`.strip
-unless HalfInit or current_workspace == Environment['name']
+unless IsWorkspaceCommand or current_workspace == Environment['name']
 	puts "You've got the #{current_workspace} workspace selected, not the #{Environment['name']} one!"
 	puts "  (./plan -i is for --force-init)"
 	exit 4
 end
 
 # Build the options that both import and plan can use
-general_options = ["--input=false"]
-general_options += ["--var", "domain=#{Environment['domain']}"]
-general_options += ["--var", "env_tag_name=#{Environment['tag_name'] || Environment['name']}"]
-general_options += ["--var", "cert_cn=#{Environment['external_cname'] || Environment['external_domain'] || Environment['domain']}"]
-general_options += ["--var", "vpc_subnet_prefix=#{Environment['subnet']}"] if Environment['subnet']
-general_options += ["--var", "vpn_server_external_ip=34.244.75.11"]
-general_options += ["--var", 'prometheus_server_external_cidrs=["63.33.188.50/32","34.247.184.240/32"]']
-
-general_options += ["--var", "region=#{RegionName}"]
+general_options = ['--input=false']
+general_options += ['--var', "domain=#{Environment['domain']}"]
+general_options += ['--var', "env_tag_name=#{Environment['tag_name'] || Environment['name']}"]
 
 plan_command = [TerraformBinary]
 if AlternateTerraformCommand

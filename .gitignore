@@ -1,0 +1,3 @@
+lib/terraform-templating/.terraform-plugins/
+examples/*/environments
+examples/*/work

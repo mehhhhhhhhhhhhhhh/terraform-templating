@@ -1,0 +1,197 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'yaml'
+require 'erb'
+require 'set'
+require 'ostruct'
+require 'fileutils'
+
+##############################
+# environment checks
+
+LibDir = File.realpath(__dir__)
+
+# TerraformVersion = YAML.load(File.read(File.join(__dir__, '..', '..', 'terraform-version.tf.json')))['terraform']['required_version']
+TerraformBinary = `which terraform`.strip
+if TerraformBinary.empty? or not $?.success?
+	$stderr.puts "Couldn't find terraform binary -- is it installed?"
+	$stderr.puts "  -> https://releases.hashicorp.com/terraform/#{TerraformVersion}/"
+	$stderr.puts "(You have ~ in your $PATH which sadly works in bash but not much else. Use $HOME instead?)" if ENV['PATH'].include?('~')
+	exit 4
+else
+#	unless `"#{TerraformBinary}" -v`.include?(TerraformVersion)
+#		$stderr.puts "You have the wrong Terraform version; you should have #{TerraformVersion}"
+#		$stderr.puts "  -> https://releases.hashicorp.com/terraform/#{TerraformVersion}/"
+#		exit 4
+#	end
+end
+
+TeeBinary = `which tee`.strip
+raise "Couldn't find tee binary -- is everything ok?" if TeeBinary.nil? or TeeBinary.empty? or not $?.success?
+
+opts_parser = OptionParser.new do |opts|
+	opts.on('-oOUTNAME', '--output=OUTNAME') {|out_name| OutputFilePrefix=File::realdirpath(out_name) }
+	opts.on('-i', '--force-init') { ShouldInit = true }
+	opts.on('-t', '--test') { TestTemplating = true }
+end
+opts_parser.parse!
+
+# Can pass e.g. `./plan ... -- workspace show` or `./plan ... -- import thing thing`
+# Or... `./plan -- apply result.plan`
+# Then that command will be run instead of the default plan command (but in the same working directory)
+AlternateTerraformCommand = ARGV.empty? ? nil : ARGV
+
+TestTemplating ||= false
+
+SourceDir = File.realdirpath(File.dirname($0))
+TerraformPluginDir = ENV['TERRAFORM_PLUGIN_DIR'] || File.join(__dir__, '.terraform-plugins')
+WorkDir = case
+	when ENV['WORK_DIR']
+		ENV['WORK_DIR']
+	else
+		File.join(SourceDir, 'work')
+	end
+OutputFilePrefix ||= ENV['OUTPUT_FILE_PREFIX'] ? File::realdirpath(ENV['OUTPUT_FILE_PREFIX']) : File.join(WorkDir, 'result')
+
+ShouldInit ||= (not File.exist?(File.join(WorkDir, '.terraform')))
+IsWorkspaceCommand = (AlternateTerraformCommand.first rescue '') == 'workspace'
+
+
+##############################
+# data and templating
+
+Dir::chdir SourceDir
+
+FileUtils.mkdir_p WorkDir
+
+scope_vars = OpenStruct.new({
+	# you can put things in here, to make them available to your .tf.rb or .tf.erb files
+})
+binding = scope_vars.instance_eval { binding }
+expected_files = Set.new(['result.planning'])
+Dir["**/*"].each do |path|
+	next if File.directory?(path)
+	next if path.start_with?('work')
+	next if path.end_with?('result.planning')
+	next if path == 'plan' or path == 'summarize'
+	if match = /((?<subdir>.*)\/)?(?<filename>[^\/]*)\.(?<extension>[^.]+)\.erb$/ =~ path
+		FileUtils.mkdir_p(File.join(WorkDir, subdir)) if subdir
+		destination_path = "#{WorkDir}/#{subdir ? "#{subdir}/" : ''}#{filename}.gen.#{extension}"
+		expected_files << "#{subdir ? "#{subdir}/" : ''}#{filename}.gen.#{extension}"
+		File.open(destination_path, 'w') do |destination|
+			erb = ERB.new(File.read(path))
+			erb.filename = path
+			destination.write(erb.result(binding))
+		end
+	elsif match = /((?<subdir>.*)\/)?(?<filename>[^\/]*)\.tf.rb$/ =~ path
+		FileUtils.mkdir_p(File.join(WorkDir, subdir)) if subdir
+		destination_path = "#{WorkDir}/#{subdir ? "#{subdir}/" : ''}#{filename}.gen.tf.json"
+		expected_files << "#{subdir ? "#{subdir}/" : ''}#{filename}.gen.tf.json"
+		File.open(destination_path, 'w') do |destination|
+			scope_vars.instance_eval do
+				load(File.join(LibDir, 'tf-ruby-template-wrapper.rb'))
+				tf_template(File.realpath(path), destination)
+			end
+		end
+	elsif match = /((?<subdir>.*)\/)?(?<filename>[^\/]*)$/ =~ path
+		FileUtils.mkdir_p(File.join(WorkDir, subdir)) if subdir
+		FileUtils.ln(path, "#{WorkDir}/#{subdir ? "#{subdir}/" : ''}#{filename}", force: true)
+		expected_files << "#{subdir ? "#{subdir}/" : ''}#{filename}"
+	end
+end
+
+Dir::chdir WorkDir
+
+(Set.new(Dir["**/*"]) - expected_files).reject{|d| File.directory?(d) }.each do |unexpected_file|
+	if unexpected_file.end_with?('.tf') or unexpected_file.end_with?('.tf.json')
+		$stderr.puts "Warning: deleting unexpected file #{unexpected_file} in working directory."
+		File.unlink(unexpected_file)
+	else
+		$stderr.puts "Warning: unexpected file #{unexpected_file} is in working directory."
+	end
+end
+
+exit if TestTemplating
+
+
+##############################
+# "patch branch" check
+
+#intended_branch = Environment['infra_branch'] || 'master'
+#current_branch = `git status -b` rescue nil
+#if $?.success? and current_branch and not current_branch.each_line.first.strip.end_with? intended_branch
+#	puts "Warning! You might not be on the right branch (expecting #{intended_branch})\n"
+#end
+#
+#begin
+#	intended_base_branch, = intended_branch.rpartition('+')
+#	unless intended_base_branch.empty?
+#		expected_revision = [intended_base_branch, "origin/#{intended_base_branch}"].map {|try_branch|
+#			`git rev-parse --verify -q #{try_branch}`.strip
+#		}.find {|revision| not revision.empty? }
+#
+#		if expected_revision.nil?
+#			puts "Warning! Base branch for patch branch seems to be missing."
+#		elsif `git merge-base #{expected_revision} HEAD`.strip != expected_revision
+#			puts "Warning! The patch branch you're on isn't on top of #{intended_base_branch}. Rebase first?"
+#		end
+#	end
+#rescue
+#	$stderr.puts "Branch checker failed to decide whether rebase needs to happen."
+#	$stderr.puts $!
+#end
+
+
+##############################
+# terraform invocation
+
+unless ENV['AWS_SECRET_ACCESS_KEY'] or ENV['AWS_SECRET_KEY']
+	$stderr.puts "No AWS credentials found. Use the wrapper?"
+	$stderr.puts "   e.g.:  $ aws-env qa-222 -- ./plan"
+	exit 4
+end
+
+#current_workspace = `'#{TerraformBinary}' workspace show`.strip
+if ShouldInit
+	FileUtils.mkdir_p(TerraformPluginDir)
+	FileUtils.mkdir_p(File.join(WorkDir, '.terraform'))
+	FileUtils.ln_s(TerraformPluginDir, File.join(WorkDir, '.terraform', 'plugins'), force: true)
+	system("'#{TerraformBinary}' init -reconfigure")
+	#system("'#{TerraformBinary}' workspace select #{Environment['name']}") or exit 4 unless IsWorkspaceCommand
+
+	system("'#{TerraformBinary}' init -reconfigure") or exit 4 unless IsWorkspaceCommand
+end
+#
+#current_workspace = `'#{TerraformBinary}' workspace show`.strip
+#unless IsWorkspaceCommand or current_workspace == Environment['name']
+#	puts "You've got the #{current_workspace} workspace selected, not the #{Environment['name']} one!"
+#	puts "  (./plan -i is for --force-init)"
+#	exit 4
+#end
+
+# Build the options that both import and plan can use
+general_options = ['--input=false']
+#general_options += ['--var', "key=value"]
+
+plan_command = [TerraformBinary]
+if AlternateTerraformCommand
+	plan_command += case
+		when %w[apply graph state show workspace taint untaint].any?{|cmd| AlternateTerraformCommand[0] == cmd }
+			AlternateTerraformCommand
+		else
+			[AlternateTerraformCommand[0], *general_options, *(AlternateTerraformCommand[1..-1] || [])]
+		end
+else
+	plan_command += ["plan", *general_options]
+	plan_command += ["--out", "#{OutputFilePrefix}.plan"]
+end
+
+if plan_command[1] == 'plan'
+	tee_out, tee_in = IO.pipe
+	tee_pid = spawn(TeeBinary, "#{OutputFilePrefix}.planning", :in=>tee_out)
+	Process.detach tee_pid
+	exec(*plan_command, [:out, :err]=>tee_in)
+else
+	exec(*plan_command)
+end

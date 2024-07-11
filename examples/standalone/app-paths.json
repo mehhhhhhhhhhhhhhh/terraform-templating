@@ -1,0 +1,10 @@
+{"app_paths": [
+  {"pattern": "/api/*"},
+  {"pattern": "/app_assets/*", "allow_http": true},
+  {"pattern": "/docs/*"},
+  {"pattern": "/images/*", "allow_http": true},
+  {"pattern": "/js/*", "allow_http": true},
+  {"pattern": "/lib/*"},
+  {"pattern": "/style.css"},
+  {"pattern": "/styles/*"}
+]}

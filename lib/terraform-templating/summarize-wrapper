@@ -3,6 +3,7 @@
 require 'optparse'
 
 TerraformTemplateDir = File.dirname($0)
+LibDir = File.realpath(__dir__)
 
 opts_parser = OptionParser.new do |opts|
 	opts.on('-eENV', '--environment=ENV') {|env| EnvironmentName=env }
@@ -22,4 +23,4 @@ rescue OptionParser::InvalidOption => e
 	retry
 end
 
-exec "\"#{TerraformTemplateDir}/../ci/tasks/summarize-planning-output\" #{passthrough_opts.flatten.join(' ')} < \"#{TerraformTemplateDir}/environments/#{EnvironmentName}/result.planning\""
+exec "\"#{File.join(LibDir, 'summarize-planning-output')}\" #{passthrough_opts.flatten.join(' ')} < \"#{TerraformTemplateDir}/environments/#{EnvironmentName}/result.planning\""

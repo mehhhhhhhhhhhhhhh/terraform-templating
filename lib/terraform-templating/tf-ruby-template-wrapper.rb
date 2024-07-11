@@ -13,7 +13,7 @@ def debug(*args)
 end
 
 def _normalize_name(name)
-	name.to_s.gsub(' ', '_').gsub('.', '__')  # TODO more special chars
+	name.to_s.gsub(' ', '_').gsub('.', '_')  # TODO more special chars
 end
 
 class ResourceProxy
@@ -61,18 +61,10 @@ class ResourceReference
 	end
 
 	def method_missing(m, *args, &block)
-		debug 'missing', m, args
-		param_name = m
-		case args.length
-		when 0
-			#@params[param_name]
-			"${#{@prefix}#{@type}.#{@name}.#{param_name}}"
-		when 1
-			@params[param_name] = args.first
-			debug 'params', @params
-		else
-			raise "Weird argument list to #{m} in #{self.inspect}"
-		end
+		raise if block
+		raise unless args.empty?
+		field_name = m
+		"${#{@prefix}#{@type}.#{@name}.#{field_name}}"
 	end
 end
 
@@ -101,11 +93,15 @@ class Resource
 			#@params[param_name]
 			"${#{@prefix}#{@type}.#{@name}.#{param_name}}"
 		when 1
-			@params[param_name] = args.first
-			debug 'params', @params
+			prop param_name, args.first
 		else
 			raise "Weird argument list to #{m} in #{self.inspect}"
 		end
+	end
+
+	def prop(key, value)
+		@params[key] = value
+		debug 'params', @params
 	end
 
 	def to_json(*args)
@@ -147,4 +143,8 @@ def tf_template(load_tf_path, json_out_stream)
 	stuff[:resource] = $resources.sort.to_h unless $resources.empty?  # TODO recursive sort
 	stuff.merge!($extra_stuff)  # TODO sort all this too
 	json_out_stream.puts JSON.pretty_generate(stuff)
+end
+
+if $PROGRAM_NAME == __FILE__
+	tf_template(ARGV.first, $stdout)
 end
