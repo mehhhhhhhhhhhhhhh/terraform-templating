@@ -68,7 +68,7 @@ Then, `./plan -- apply result.plan` will pick up that `result.plan` file, since 
 
 The `result.planning` file is sometimes useful if you want to review the results of the plan later, or compare them with other results.
 
-You can run any other Terraform command within the `work/` directory by passing it to `./plan` in a similar style:
+You can run any other Terraform command within the `work/` directory in the same way, by passing it to `./plan` instead of `apply`:
 
 * `./plan -- workspace new potato`
 * `./plan -- import aws_instance.thing i-0123456789`
