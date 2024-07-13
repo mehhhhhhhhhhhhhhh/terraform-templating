@@ -66,7 +66,7 @@ Just `./plan` by default will run `terraform plan -out result.plan | tee result.
 
 Then, `./plan -- apply result.plan` will pick up that `result.plan` file, since it also calls Terraform from that same `work/` directory.
 
-The `result.planning` file is sometimes useful if you want to review the result, such as with one of the included `summarize` scripts.
+The `result.planning` file is sometimes useful if you want to review the results of the plan later, or compare them with other results.
 
 You can run any other Terraform command within the `work/` directory by passing it to `./plan` in a similar style:
 
