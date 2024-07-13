@@ -35,6 +35,8 @@ terraform {
 
 ```
 
+This is an example of the ERB format (`.tf.erb`). ERB is a templating language like Jinja or PHP(!), except based on Ruby (and provided in Ruby's standard library).
+
 For `resource` and `data` declarations, we also have the option of a simple **Ruby DSL** (domain-specific language).
 
 In the example above, the template contains references to **external configuration** for the `Environment` (workspace) being worked on.
