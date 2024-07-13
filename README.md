@@ -79,7 +79,7 @@ Other variations
 
 This isn't a framework -- it's just an example, which can be easily modified for different needs. You should own your own interface!
 
-Check out the repo and look at the diff between the two plan scripts in [`lib/terraform-templating`](lib/terraform-templating) and you'll see that the customization needed to get similar results is pretty minimal.
+Check out the repo, and compare the changes from `plan-standalone` to `plan-with-env-data` in [`lib/terraform-templating`](lib/terraform-templating) -- you'll see that the customization needed is pretty minimal, to get similar results with your own project layout.
 
 
 Hidden depths
